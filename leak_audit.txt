@@ -1,0 +1,55 @@
+samples 1061278, positives 28327 (0.0267)
+=== 1. temporal split ===
+snippets (days)        : 604  2009-12-01 .. 2011-12-09
+cut day                : index 513 = 2011-08-25
+train rows             :   833140  days 2009-12-01 .. 2011-08-24
+holdout rows           :   228138  days 2011-08-25 .. 2011-12-09  (91 days)
+train pos rate         : 0.0241
+holdout pos rate       : 0.0360
+holdout rows with buyer:   178537
+train snapshots        : 513
+holdout snapshots      : 91
+
+=== 3. univariate AUC on the holdout (known buyers) ===
+                  feature  auc_holdout  signal direction  share_zero    median
+                vi_tx_cnt       0.7881  0.7881    direct      0.0000      1.00
+                vc_tx_cnt       0.7693  0.7693    direct      0.1575     16.00
+              user_tx_cnt       0.7654  0.7654    direct      0.1289    140.00
+  user_avg_active_day_gap       0.3301  0.6699   inverse      0.2317     20.56
+            viscat_tx_cnt       0.4478  0.5522   inverse      0.0000 455241.00
+              item_tx_cnt       0.5368  0.5368    direct      0.0015    222.00
+item_repeat_purchase_rate       0.5343  0.5343    direct      0.0483     30.00
+                ic_tx_cnt       0.5205  0.5205    direct      0.0238    169.00
+       ii_co_purchase_cnt       0.5204  0.5204    direct      0.0000   1365.00
+               cat_tx_cnt       0.4851  0.5149   inverse      0.0000  47743.00
+  item_avg_active_day_gap       0.5052  0.5052    direct      0.0043      2.11
+       ic_view_to_tx_conv       0.5005  0.5005    direct      0.0238      1.00
+
+=== 4. where does the signal come from? (holdout, known buyers) ===
+  part2 only (3.1/3.2/4/6)     n= 4  AUC all rows 0.8226  AUC known buyers 0.7710
+  part1 only (repo table)      n= 8  AUC all rows 0.8432  AUC known buyers 0.7975
+  all features                 n=12  AUC all rows 0.8606  AUC known buyers 0.8200
+
+=== 5. strictly forward-chaining CV ===
+  fold 2: train days < 155 (182858 rows), valid 155..297 (169998 rows)  AUC 0.7151
+  fold 3: train days < 299 (352856 rows), valid 299..449 (269458 rows)  AUC 0.7194
+  fold 4: train days < 450 (622314 rows), valid 450..597 (172879 rows)  AUC 0.7656
+  fold 5: train days < 598 (795193 rows), valid 598..738 (266085 rows)  AUC 0.8215
+  forward-chaining OOF AUC (known buyers): 0.7597
+  blocked CV OOF AUC (known buyers)        : 0.7751   <-- trains on the future
+
+=== 2. the features are counted over the past window only ===
+  the windows of the stored features: k=332, x=352, q=112
+  anonymous rows in the sample: 150, of them vi_tx_cnt == 0: 150
+        cat_tx_cnt: equals the past window  650/650   equals the forward window    0/650
+     viscat_tx_cnt: equals the past window  650/650   equals the forward window    0/650
+         vi_tx_cnt: equals the past window  650/650   equals the forward window   71/650
+  (a match with the forward window is a coincidence: the counts of the two windows are simply equal)
+
+=== 6. the window of the repository table ===
+  user_tx_cnt ==  past_incl for every row: no
+  user_tx_cnt ==  past_excl for every row: yes, w in [372..373]
+  user_tx_cnt ==    forward for every row: no
+  (the mean of the range [7, 738] is 372.6 days)
+
+done in 151s
