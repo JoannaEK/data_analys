@@ -48,9 +48,13 @@ class FeatureBuilder:
         self.n_items = int(self.item_key.max()) + 1
 
         days = df["day"].to_numpy()
+        # the rows without a customer id have no visitor: they must not be
+        # merged into one pseudo-visitor in the visitor-keyed features
+        self.known = df["visitor"].ne("").to_numpy()
+        kn = self.known
         self.dc_cat = DayCounter(self.cat_key, days, self.n_cat, self.n_days)
         self.dc_vcat = DayCounter(self.vcat_key, days, self.n_vcat, self.n_days)
-        self.dc_vi = DayCounter(self.vi_key, days, self.n_vi, self.n_days)
+        self.dc_vi = DayCounter(self.vi_key[kn], days[kn], self.n_vi, self.n_days)
 
         # group 6 snapshot grid
         self.g6_snaps = list(range(0, self.n_days, g6_stride))
@@ -80,7 +84,7 @@ class FeatureBuilder:
         it = self.df["item_id"].to_numpy()
         for si, d in enumerate(self.g6_snaps):
             lo, hi = d + 1 - u, d + 1
-            m = (day >= lo) & (day < hi)
+            m = (day >= lo) & (day < hi) & self.known
             sub_v = vis[m]
             sub_i = it[m]
             # unique (visitor,item) inside the window
@@ -130,6 +134,9 @@ class Objective:
         self.cache = {}
         self.cache_size = cache_size
         self.y = samples["target"].to_numpy()
+        # the rows with an identified buyer: the target is only meaningful
+        # there (a transaction without a customer id has no buyer)
+        self.known = samples["visitor"].ne("").to_numpy()
         self.calls = 0
 
     def _cached(self, name, window):
@@ -163,7 +170,11 @@ class Objective:
         model.fit(X[self.train_mask], self.y[self.train_mask])
         p = model.predict_proba(X[self.valid_mask])[:, 1]
         from sklearn.metrics import roc_auc_score
-        auc = roc_auc_score(self.y[self.valid_mask], p)
+        yv = self.y[self.valid_mask]
+        auc = roc_auc_score(yv, p)
+        mk = self.known[self.valid_mask]
+        self.auc_known = (roc_auc_score(yv[mk], p[mk])
+                          if len(np.unique(yv[mk])) > 1 else float("nan"))
         self.last_time = time.time() - t0
         return auc
 
@@ -176,7 +187,9 @@ def pattern_search(objective, names, start, lo, hi, steps=(80, 40, 20, 10, 5),
     """Classic compass/pattern search with a globally shrinking step."""
     point = dict(start)
     best = objective([point[n] for n in names])
-    history = [{"point": dict(point), "auc": best, "step": steps[0]}]
+    history = [{"point": dict(point), "auc": best,
+                "auc_known": getattr(objective, "auc_known", None),
+                "step": steps[0]}]
     print(f"start {point} auc={best:.5f}", flush=True)
 
     for step in steps:
@@ -191,7 +204,9 @@ def pattern_search(objective, names, start, lo, hi, steps=(80, 40, 20, 10, 5),
                         continue
                     cand[n] = val
                     auc = objective([cand[k2] for k2 in names])
-                    history.append({"point": dict(cand), "auc": auc, "step": step})
+                    history.append({"point": dict(cand), "auc": auc,
+                                    "auc_known": getattr(objective, "auc_known", None),
+                                    "step": step})
                     print(f"  step {step} {n}{'+' if direction>0 else '-'} -> {cand} auc={auc:.5f}",
                           flush=True)
                     if auc > best:
