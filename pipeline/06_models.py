@@ -97,6 +97,73 @@ FEATURE_DESC = {
 }
 
 
+# the window the published table of the repository was built with: the start
+# window of its own experiment 1, i.e. the mean of the range [7, 738]
+REPO_TABLE_WINDOW = 372.606
+# the optimal windows of the groups 1, 2, 5.1, 5.2 (1exp_opt_1.csv of the
+# repository); the values are rounded to whole days
+REPO_OPTIMAL = {"n": 198, "m": 518, "s": 13, "z": 348}
+REPO_OPTIMAL_EXACT = {"n": 197.606, "m": 517.606, "s": 12.606, "z": 347.606}
+
+
+def read_windows(path, col="optimal_window_days", key="param"):
+    """-> dict param -> window (days) from a table of the pipeline."""
+    if not os.path.exists(path):
+        return {}
+    d = pd.read_csv(path)
+    if key not in d.columns:
+        key = d.columns[0]
+    if col not in d.columns:
+        col = d.columns[-1]
+    out = {}
+    for _, r in d.iterrows():
+        try:
+            out[str(r[key]).strip()] = float(r[col])
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def read_wide(path):
+    """-> dict name -> value from a wide table (one column per parameter)."""
+    if not os.path.exists(path):
+        return {}
+    d = pd.read_csv(path)
+    out = {}
+    for c in d.columns:
+        try:
+            out[str(c).strip()] = float(d[c].iloc[0])
+        except (TypeError, ValueError, IndexError):
+            continue
+    return out
+
+
+PART2_FEATURES = {"cat_tx_cnt", "viscat_tx_cnt", "vi_tx_cnt", "ii_co_purchase",
+                  "ii_co_purchase_cnt"}
+
+
+def describe_feature(f, part2_windows):
+    """-> 'feature -> parameter = window (source of the value)'"""
+    base = f[:-4] if f.endswith("_opt") else f
+    p = FEATURE_PARAM.get(base, "?")
+    if f.endswith("_opt"):
+        w = REPO_OPTIMAL.get(p, "?")
+        return (f"{f} -> {p} = {w} days (recomputed locally with the optimal "
+                f"window of the group, 1exp_opt_1.csv: {REPO_OPTIMAL_EXACT[p]})")
+    if base in PART2_FEATURES:
+        w = part2_windows.get(p, "?")
+        return (f"{f} -> {p} = {w} days (features_part_2.csv of this pipeline, "
+                f"the optimal window of experiment 1)")
+    if base == "ic_view_to_tx_conv":
+        return (f"{f} -> {p} = {REPO_OPTIMAL_EXACT['z']} days (the table of the "
+                f"repository; the value itself is built with the start window "
+                f"{REPO_TABLE_WINDOW} days)")
+    w = REPO_TABLE_WINDOW
+    return (f"{f} -> {p} = {w} days (the table of the repository, built with "
+            f"the start window of its experiment 1; the optimal window of the "
+            f"group is {REPO_OPTIMAL_EXACT[p]} days)")
+
+
 def evaluate(y_true, y_prob, threshold=0.5):
     y_pred = (y_prob >= threshold).astype(int)
     prec, rec, f1, _ = precision_recall_fscore_support(
@@ -164,18 +231,29 @@ def train_model(X, y, tr, te, params=None):
     return model
 
 
-def cv_metrics(X, y, day, n_folds=5, params=None):
+def cv_metrics(X, y, day, n_folds=5, params=None, mode="forward"):
     """Out-of-fold metrics of a model fitted on the whole data set.
 
-    The folds are contiguous blocks of the time axis, so every row is used
-    for training (in the other folds) and once for validation.
+    mode="blocked"  : the folds are contiguous blocks of the time axis and
+                      every fold is trained on the other blocks.  The early
+                      blocks are therefore predicted by a model that has seen
+                      the future - the number is optimistic.
+    mode="forward"  : strictly forward chaining.  A block is predicted by a
+                      model that was trained on the days before the block
+                      only - this is the honest protocol.
     """
     days = np.sort(np.unique(day))
     blocks = np.array_split(days, n_folds)
     oof = np.zeros(len(y), dtype=np.float64)
     for b in blocks:
         te = np.isin(day, b)
-        tr = ~te
+        if mode == "forward":
+            tr = day < b[0]
+            if not tr.any():
+                oof[te] = 0.5
+                continue
+        else:
+            tr = ~te
         model = train_model(X, y, tr, te, params)
         oof[te] = model.predict_proba(X[te])[:, 1]
     return evaluate(y, oof), oof
@@ -185,12 +263,19 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--part2", default="features_part_2.csv")
     ap.add_argument("--part1", default="features_part_1.csv")
+    ap.add_argument("--part1-opt", default="features_part_1_local_opt.csv",
+                    help="the groups 1, 2, 5.1, 5.2 recomputed locally with the "
+                         "optimal windows of 1exp_opt_1.csv")
+    ap.add_argument("--exp1", default="1exp_opt_2.csv")
     ap.add_argument("--out-metrics", default="models_comparison.csv")
     ap.add_argument("--out-features", default="models_features.csv")
     ap.add_argument("--out-importances", default="models_feature_importance.csv")
     args = ap.parse_args()
 
     cfg = load_config()
+    part2_windows = read_wide(args.exp1)
+    print("the optimal windows of experiment 1 (features_part_2.csv):",
+          part2_windows)
     samples = build_samples(load_retail(), cfg)
     y = samples["target"].to_numpy()
 
@@ -207,15 +292,35 @@ def main():
     if part1 is None:
         print(f"!! {args.part1} not found - only groups 3.1/3.2/4/6 are used")
 
+    # the same groups recomputed locally with the optimal windows
+    part1_opt = None
+    if args.part1_opt and os.path.exists(args.part1_opt):
+        part1_opt = pd.read_csv(args.part1_opt, parse_dates=["t"],
+                                dtype={"visitor": "string", "itemid": "string"})
+        part1_opt["visitor"] = part1_opt["visitor"].fillna("")
+        rename = {c: c + "_opt" for c in part1_opt.columns
+                  if c in FEATURE_PARAM and c not in ("t", "visitor", "itemid")}
+        part1_opt = part1_opt.rename(columns=rename)
+        print(f"local table with the optimal windows: {args.part1_opt} "
+              f"-> {list(rename.values())}")
+    else:
+        print(f"!! {args.part1_opt} not found - the model with the optimal "
+              f"windows of the groups 1/2/5.1/5.2 is skipped")
+
     key = ["t", "visitor", "itemid"]
     part2 = part2.drop_duplicates(subset=key, keep="first")
     if part1 is not None:
         part1 = part1.drop_duplicates(subset=key, keep="first")
+    if part1_opt is not None:
+        part1_opt = part1_opt.drop_duplicates(subset=key, keep="first")
 
     df = samples.merge(part2, on=key, how="left", suffixes=("", "_p2"),
                        validate="many_to_one")
     if part1 is not None:
         df = df.merge(part1, on=key, how="left", suffixes=("", "_p1"),
+                      validate="many_to_one")
+    if part1_opt is not None:
+        df = df.merge(part1_opt, on=key, how="left", suffixes=("", "_po"),
                       validate="many_to_one")
     if len(df) != len(samples):
         print(f"!! merged frame has {len(df)} rows for {len(samples)} samples")
@@ -228,6 +333,9 @@ def main():
         n_fill = int(df[p1_cols].isna().all(axis=1).sum())
         df[p1_cols] = df[p1_cols].fillna(0.0)
         print(f"rows without a customer id, features set to 0: {n_fill}")
+    if part1_opt is not None:
+        p1o_cols = [c for c in part1_opt.columns if c.endswith("_opt")]
+        df[p1o_cols] = df[p1o_cols].fillna(0.0)
     print(f"merged frame: {len(df)} rows, alignment with the samples verified")
 
     days = np.sort(samples["day"].unique())
@@ -244,23 +352,53 @@ def main():
         if use:
             model_specs.append((f"model_{gname}", use))
     model_specs.append(("model_all_features", available))
+    # the same feature set, but the groups 1, 2, 5.1 and 5.2 are recomputed
+    # locally with the optimal windows of 1exp_opt_1.csv
+    if part1_opt is not None:
+        opt_feats = [f + "_opt" for f in available
+                     if f + "_opt" in df.columns and f != "ic_view_to_tx_conv"]
+        if "ic_view_to_tx_conv" in df.columns:
+            opt_feats.append("ic_view_to_tx_conv")
+        if opt_feats:
+            model_specs.append(("model_all_features_optimal_windows", opt_feats))
     seen = set()
     model_specs = [(n, f) for n, f in model_specs
                    if not (tuple(f) in seen or seen.add(tuple(f)))]
 
     metrics, feat_desc, importances = [], [], []
+    known = (samples["visitor"] != "").to_numpy()
+    day = samples["day"].to_numpy()
     for name, feats in model_specs:
         X = df[feats].to_numpy(dtype=np.float64)
 
-        # 1) out-of-fold predictions of the time-blocked CV: they define the
-        #    decision threshold and the CV metrics
-        cvm, oof = cv_metrics(X, y, samples["day"].to_numpy())
+        # 1) out-of-fold predictions of the forward-chaining CV: they define
+        #    the decision threshold and the CV metrics
+        _, oof = cv_metrics(X, y, day, mode="forward")
         thr = best_f1_threshold(y, oof)
         cvm = evaluate(y, oof, thr)
         cvm["model"] = name
         cvm["n_features"] = len(feats)
-        cvm["evaluation"] = "5-fold time-blocked CV on the full data set"
+        cvm["evaluation"] = "5-fold forward-chaining CV on the full data set"
+        cvm["n_rows"] = len(y)
+        cvm["pos_rate"] = float(y.mean())
         metrics.append(cvm)
+
+        # the same predictions restricted to the rows with an identified
+        # buyer: the target is only meaningful there
+        yk = y[known]
+        oofk = oof[known]
+        thr_k = best_f1_threshold(yk, oofk)
+        cvmk = evaluate(yk, oofk, thr_k)
+        cvmk["model"] = name
+        cvmk["n_features"] = len(feats)
+        cvmk["evaluation"] = ("5-fold forward-chaining CV on the rows with "
+                              "a known buyer")
+        cvmk["n_rows"] = int(known.sum())
+        cvmk["pos_rate"] = float(yk.mean())
+        metrics.append(cvmk)
+
+        # the blocked CV (which trains on the future) is not reported here:
+        # 10_leak_audit.py quantifies how optimistic it is
 
         # 2) the final model: trained on the first 85% of the snapshots and
         #    evaluated on the last 15% with the threshold found on the CV
@@ -270,29 +408,50 @@ def main():
         m["model"] = name
         m["n_features"] = len(feats)
         m["evaluation"] = "holdout (last 15% of the snapshots)"
+        m["n_rows"] = int(te.sum())
+        m["pos_rate"] = float(y[te].mean())
         metrics.append(m)
 
-        params_used = sorted({FEATURE_PARAM[f]: f for f in feats}.items())
+        kn_te = known[te]
+        mk = evaluate(y[te][kn_te], prob[kn_te], thr_k)
+        mk["model"] = name
+        mk["n_features"] = len(feats)
+        mk["evaluation"] = ("holdout (last 15% of the snapshots), rows with "
+                            "a known buyer")
+        mk["n_rows"] = int(kn_te.sum())
+        mk["pos_rate"] = float(y[te][kn_te].mean())
+        metrics.append(mk)
+
+        def param_of(f):
+            return FEATURE_PARAM[f[:-4]] if f.endswith("_opt") else FEATURE_PARAM[f]
+
+        params_used = sorted({param_of(f) for f in feats})
         feat_desc.append({
             "model": name,
             "features": ", ".join(feats),
             "n_features": len(feats),
-            "window_params": ", ".join(f"{p} (features: "
-                                       f"{', '.join(f for f in feats if FEATURE_PARAM[f]==p)})"
-                                       for p, _ in params_used),
-            "feature_description": " | ".join(FEATURE_DESC[f] for f in feats),
-            "feature_to_param": ", ".join(f"{f} -> {FEATURE_PARAM[f]}" for f in feats),
+            "window_params": ", ".join(
+                f"{p} (features: "
+                f"{', '.join(f for f in feats if param_of(f) == p)})"
+                for p in params_used),
+            "feature_description": " | ".join(
+                FEATURE_DESC.get(f[:-4] if f.endswith("_opt") else f, f)
+                for f in feats),
+            "feature_to_param": " | ".join(describe_feature(f, part2_windows)
+                                           for f in feats),
         })
         imp = model.booster_.feature_importance("gain")
         for f, v in zip(feats, imp):
             importances.append({"model": name, "feature": f, "gain": float(v)})
-        print(f"{name:38s} holdout auc={m['roc_auc']:.5f}  cv auc={cvm['roc_auc']:.5f} "
-              f"thr={thr:.4f} f1={m['f1']:.4f} logloss={m['log_loss']:.5f}", flush=True)
+        print(f"{name:38s} holdout auc={m['roc_auc']:.5f} "
+              f"(known buyers {mk['roc_auc']:.5f})  "
+              f"fwd-cv auc={cvm['roc_auc']:.5f}  thr={thr:.4f} "
+              f"f1={m['f1']:.4f}", flush=True)
 
-    md = pd.DataFrame(metrics)[["model", "evaluation", "n_features", "roc_auc",
-                                "pr_auc", "log_loss", "accuracy", "precision",
-                                "recall", "f1", "threshold", "f1_max",
-                                "threshold_max"]]
+    md = pd.DataFrame(metrics)[["model", "evaluation", "n_features", "n_rows",
+                                "pos_rate", "roc_auc", "pr_auc", "log_loss",
+                                "accuracy", "precision", "recall", "f1",
+                                "threshold", "f1_max", "threshold_max"]]
     md = md.sort_values(["evaluation", "roc_auc"], ascending=[True, False])
     md.to_csv(args.out_metrics, index=False, lineterminator="\r\n")
     pd.DataFrame(feat_desc).to_csv(args.out_features, index=False, lineterminator="\r\n")
