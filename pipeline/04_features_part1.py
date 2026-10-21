@@ -63,8 +63,15 @@ def main():
     day = df["day"].to_numpy()
     day_end = day + 1
 
+    # The transactions without a customer id have no visitor.  They are not
+    # merged into one pseudo-visitor: the visitor keyed counters are built on
+    # the identified buyers only, so the visitor keyed features of such a row
+    # are 0.  The item keyed features (group 2) do count them.
+    known = df["visitor"].ne("").to_numpy()
+    kn = known
+
     # ---- group 1 -----------------------------------------------------------
-    dc_v = DayCounter(vis_code, day, n_vis, n_days)
+    dc_v = DayCounter(vis_code[kn], day[kn], n_vis, n_days)
     user_tx_cnt = dc_v.window_count(vis_code, day_end, n)
     user_avg_active_day_gap = dc_v.active_day_gap(vis_code, day_end, n)
 
@@ -76,9 +83,13 @@ def main():
     # item_repeat_purchase_rate: users who bought the item on >= 2 distinct
     # days inside the window.  Key of the intermediate index is (item, user).
     iu_raw = encode_pairs(item_code, vis_code, n_vis)
-    iu, iu_inv = np.unique(iu_raw, return_inverse=True)      # dense pair ids
+    iu_known = np.unique(iu_raw[kn])
+    iu = np.append(iu_known, int(iu_known.max()) + 1)   # the last slot is for
+    iu_inv = np.full(len(df), len(iu) - 1, dtype=np.int64)   # the rows with
+    pos_known = np.searchsorted(iu, iu_raw, side="left")     # no buyer
+    iu_inv[kn] = np.clip(pos_known[kn], 0, len(iu) - 2)
     n_iu = len(iu)
-    dc_iu = DayCounter(iu_inv, day, n_iu, n_days)
+    dc_iu = DayCounter(iu_inv[kn], day[kn], n_iu, n_days)
     # unique (pair, snapshot) combinations
     span = n_days + 1                      # day_end can reach n_days
     ps = iu_inv * span + day_end
@@ -100,7 +111,7 @@ def main():
     # ---- group 5.1 ---------------------------------------------------------
     vc = encode_pairs(vis_code, cat_code, n_cat)
     n_vc = int(vc.max()) + 1
-    dc_vc = DayCounter(vc, day, n_vc, n_days)
+    dc_vc = DayCounter(vc[kn], day[kn], n_vc, n_days)
     vc_tx_cnt = dc_vc.window_count(vc, day_end, s)
 
     # ---- group 5.2 ---------------------------------------------------------
