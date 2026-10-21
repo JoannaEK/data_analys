@@ -35,17 +35,23 @@ def build_samples(df, cfg=None):
     df["visitor"] = df["visitor"].fillna("")
 
     # ---- target: repeat purchase of the same item inside [t, t+horizon) ------
+    # The transactions without a customer id have no buyer: they cannot show a
+    # repeat purchase of the same buyer, so their target is 0.  They must not
+    # be merged into one pseudo-visitor either - otherwise all the anonymous
+    # transactions of an item look like a "repeat purchase" of one buyer.
     horizon = cfg["horizon"]
-    trip = df[["visitor", "itemid", "day"]].drop_duplicates()
+    has_visitor = df["visitor"].ne("")
+    trip = df.loc[has_visitor, ["visitor", "itemid", "day"]].drop_duplicates()
     trip = trip.sort_values(["visitor", "itemid", "day"], kind="stable")
     next_day = trip.groupby(["visitor", "itemid"], sort=False)["day"].shift(-1)
     trip["next_day"] = next_day
     lookup = trip.set_index(["visitor", "itemid", "day"])["next_day"]
     idx = pd.MultiIndex.from_frame(df[["visitor", "itemid", "day"]])
     nxt = lookup.reindex(idx).to_numpy()
-    df["target"] = ((nxt - df["day"].to_numpy()) >= 1).astype(np.int8) & \
-                   ((nxt - df["day"].to_numpy()) <= horizon)
+    delta = nxt - df["day"].to_numpy()
+    df["target"] = ((delta >= 1) & (delta <= horizon)).astype(np.int8)
     df["target"] = df["target"].astype(np.int8)
+    df.attrs["has_visitor"] = has_visitor.to_numpy()
     return df
 
 
