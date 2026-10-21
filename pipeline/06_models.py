@@ -221,6 +221,13 @@ def main():
         print(f"!! merged frame has {len(df)} rows for {len(samples)} samples")
     if "target" in df.columns and not (df["target"].to_numpy() == y).all():
         raise SystemExit("!! the merged frame is not aligned with the samples")
+    if part1 is not None:
+        # the transactions without a customer id are not covered by the
+        # repository table: an empty window means a zero value
+        p1_cols = [c for c in FEATURE_PARAM if c in part1.columns]
+        n_fill = int(df[p1_cols].isna().all(axis=1).sum())
+        df[p1_cols] = df[p1_cols].fillna(0.0)
+        print(f"rows without a customer id, features set to 0: {n_fill}")
     print(f"merged frame: {len(df)} rows, alignment with the samples verified")
 
     days = np.sort(samples["day"].unique())
