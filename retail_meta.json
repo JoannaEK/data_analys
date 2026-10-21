@@ -1,0 +1,115 @@
+{
+ "source": "online_retail_II.csv",
+ "output": "retail.csv",
+ "rows": 1061278,
+ "removed_price_outliers": [],
+ "price_min": 0.0,
+ "price_max": 1157.15,
+ "visitor_cat_map": {
+  "Australia": 0,
+  "Austria": 1,
+  "Bahrain": 2,
+  "Belgium": 3,
+  "Bermuda": 4,
+  "Brazil": 5,
+  "Canada": 6,
+  "Channel Islands": 7,
+  "Cyprus": 8,
+  "Czech Republic": 9,
+  "Denmark": 10,
+  "EIRE": 11,
+  "European Community": 12,
+  "Finland": 13,
+  "France": 14,
+  "Germany": 15,
+  "Greece": 16,
+  "Hong Kong": 17,
+  "Iceland": 18,
+  "Israel": 19,
+  "Italy": 20,
+  "Japan": 21,
+  "Korea": 22,
+  "Lebanon": 23,
+  "Lithuania": 24,
+  "Malta": 25,
+  "Netherlands": 26,
+  "Nigeria": 27,
+  "Norway": 28,
+  "Poland": 29,
+  "Portugal": 30,
+  "RSA": 31,
+  "Saudi Arabia": 32,
+  "Singapore": 33,
+  "Spain": 34,
+  "Sweden": 35,
+  "Switzerland": 36,
+  "Thailand": 37,
+  "USA": 38,
+  "United Arab Emirates": 39,
+  "United Kingdom": 40,
+  "Unspecified": 41,
+  "West Indies": 42
+ },
+ "item_cat_bounds": {
+  "item_cat_1": {
+   "min": 0.0,
+   "max": 0.65,
+   "count": 114855,
+   "share": 0.10822329304856974
+  },
+  "item_cat_2": {
+   "min": 0.66,
+   "max": 0.95,
+   "count": 98604,
+   "share": 0.09291062285282461
+  },
+  "item_cat_3": {
+   "min": 0.96,
+   "max": 1.25,
+   "count": 109139,
+   "share": 0.10283733385597364
+  },
+  "item_cat_4": {
+   "min": 1.26,
+   "max": 1.65,
+   "count": 117329,
+   "share": 0.11055444473549815
+  },
+  "item_cat_5": {
+   "min": 1.66,
+   "max": 2.1,
+   "count": 121633,
+   "share": 0.11460993255301627
+  },
+  "item_cat_6": {
+   "min": 2.11,
+   "max": 2.95,
+   "count": 140963,
+   "share": 0.13282382184498312
+  },
+  "item_cat_7": {
+   "min": 2.96,
+   "max": 3.75,
+   "count": 74648,
+   "share": 0.07033783796517029
+  },
+  "item_cat_8": {
+   "min": 3.79,
+   "max": 4.95,
+   "count": 97615,
+   "share": 0.09197872753416164
+  },
+  "item_cat_9": {
+   "min": 4.96,
+   "max": 7.62,
+   "count": 80537,
+   "share": 0.07588680816901887
+  },
+  "item_cat_10": {
+   "min": 7.64,
+   "max": 1157.15,
+   "count": 105955,
+   "share": 0.09983717744078366
+  }
+ }
+}
