@@ -73,19 +73,37 @@ class FeatureBuilder:
         self.n_vc = int(self.vc_key.max()) + 1
         self.n_ic = int(self.ic_key.max()) + 1
 
-        self.dc_vis = DayCounter(self.visitor_key, day, self.n_vis, self.n_days)
+        # The transactions without a customer id have no visitor.  They are
+        # not merged into one pseudo-visitor: the visitor-keyed counters are
+        # built on the identified buyers only, so every visitor-keyed feature
+        # of such a row is 0 ("no visitor -> no visitor level count").
+        # The category-keyed features (3.1, 3.2, 5.2) do count them: they are
+        # transactions of a category.
+        if "visitor" in df.columns:
+            self.known = df["visitor"].ne("").to_numpy()
+        else:
+            self.known = np.ones(len(df), dtype=bool)
+        kn = self.known
+
+        self.dc_vis = DayCounter(self.visitor_key[kn], day[kn], self.n_vis,
+                                 self.n_days)
         self.dc_item = DayCounter(self.item_key, day, self.n_items, self.n_days)
         self.dc_cat = DayCounter(self.cat_key, day, self.n_cat, self.n_days)
         self.dc_vcat = DayCounter(self.vcat_key, day, self.n_vcat, self.n_days)
-        self.dc_vi = DayCounter(self.vi_key, day, self.n_vi, self.n_days)
-        self.dc_vc = DayCounter(self.vc_key, day, self.n_vc, self.n_days)
+        self.dc_vi = DayCounter(self.vi_key[kn], day[kn], self.n_vi, self.n_days)
+        self.dc_vc = DayCounter(self.vc_key[kn], day[kn], self.n_vc, self.n_days)
         self.dc_ic = DayCounter(self.ic_key, day, self.n_ic, self.n_days)
 
         # (item, user) pairs for item_repeat_purchase_rate
         iu_raw = encode_pairs(self.item_key, self.visitor_key, self.n_vis)
-        self.iu, iu_inv = np.unique(iu_raw, return_inverse=True)
-        self.iu_inv = iu_inv
-        self.dc_iu = DayCounter(iu_inv, day, len(self.iu), self.n_days)
+        iu_known = np.unique(iu_raw[kn])
+        # the last slot is reserved for the rows without a buyer: it is not a
+        # valid (item, visitor) pair, so it is never present in the counter
+        self.iu = np.append(iu_known, int(iu_known.max()) + 1)
+        self.iu_inv = np.full(len(self.df), len(self.iu) - 1, dtype=np.int64)
+        pos = np.searchsorted(self.iu, iu_raw, side="left")
+        self.iu_inv[kn] = np.clip(pos[kn], 0, len(self.iu) - 2)
+        self.dc_iu = DayCounter(self.iu_inv[kn], day[kn], len(self.iu), self.n_days)
 
         self.g6_snaps = list(range(0, self.n_days, g6_stride))
         self._g6_cache = {}
@@ -143,7 +161,7 @@ class FeatureBuilder:
         deg = np.zeros((len(self.g6_snaps), self.n_items), dtype=np.int32)
         for si, d in enumerate(self.g6_snaps):
             lo, hi = d + 1 - u, d + 1
-            m = (self.day >= lo) & (self.day < hi)
+            m = (self.day >= lo) & (self.day < hi) & self.known
             key = encode_pairs(self.visitor_key[m], self.item_key[m], self.n_items)
             key = np.unique(key)
             if len(key) < 2:
@@ -189,7 +207,7 @@ class FeatureBuilder:
             keep_set[np.asarray(top_items)] = True
         for d in self.g6_snaps:
             lo, hi = d + 1 - u, d + 1
-            m = (self.day >= lo) & (self.day < hi)
+            m = (self.day >= lo) & (self.day < hi) & self.known
             key = np.unique(encode_pairs(self.visitor_key[m], self.item_key[m], self.n_items))
             if len(key) < 2:
                 continue
