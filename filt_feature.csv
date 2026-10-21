@@ -1,0 +1,13 @@
+feature,needed,new_param
+user_tx_cnt,1,n1
+user_avg_active_day_gap,2,n2
+item_tx_cnt,0,
+item_avg_active_day_gap,0,
+item_repeat_purchase_rate,0,
+cat_tx_cnt,0,
+viscat_tx_cnt,2,x1
+vi_tx_cnt,2,q1
+vc_tx_cnt,1,s1
+ic_tx_cnt,0,
+ic_view_to_tx_conv,0,
+ii_co_purchase_cnt,0,
