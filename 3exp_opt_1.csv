@@ -1,0 +1,3 @@
+param,feature,group,mark,start_window_days,optimal_window_days,moved,n_moves,n_accepted,n_skips,n_halvings,converged,step_final_days,best_gain_roc
+n1,user_tx_cnt,G1,1,372.606,12.606,1,11,5,4,4,1,5.0,0.002417
+s1,vc_tx_cnt,G5.1,1,372.606,282.606,1,12,2,0,4,1,5.0,0.000298
